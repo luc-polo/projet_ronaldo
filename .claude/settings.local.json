@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:docs.polymarket.com)",
+      "Bash(grep -niA3 -E \"python|run|launch|main\\\\.py\" README.md)",
+      "Bash(command -v uv)",
+      "Bash(uv --version)",
+      "Bash(rm -rf .cache)",
+      "Bash(SAMPLE_SIZE=5 LEADERBOARD_MAX_OFFSET=200 TIME_PERIODS=WEEK CATEGORY=CULTURE python3 -c ' *)"
+    ]
+  }
+}
