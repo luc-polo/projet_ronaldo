@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import List
 
 from dotenv import load_dotenv
@@ -31,6 +32,11 @@ def _get_float(name: str, default: float) -> float:
     return float(_get(name, str(default)))
 
 
+def _sanitize(s: str) -> str:
+    """Keep a RUN_LABEL safe for filesystem paths."""
+    return "".join(c for c in s if c.isalnum() or c in "-_")
+
+
 @dataclass(frozen=True)
 class Config:
     # run scope
@@ -50,6 +56,7 @@ class Config:
     max_favorite_entry_share: float
     min_loss_share: float
     min_roi: float
+    roi_trim_top_n: int
     max_trades_per_day: float
     max_size_ratio: float
     max_late_entry_share: float
@@ -66,6 +73,9 @@ class Config:
     leaderboard_max_offset: int
     cache_dir: str
     output_dir: str
+    # per-run isolated output folder: output/{CATEGORY}_{YYYY_MM_DD-HHMMSS}[_LABEL]
+    run_label: str
+    run_dir: str
 
     # endpoint bases (not in .env; stable constants)
     data_api: str = "https://data-api.polymarket.com"
@@ -87,6 +97,12 @@ def load_config(env_path: str | None = None) -> Config:
     if bad:
         raise ValueError(f"TIME_PERIODS contains invalid {sorted(bad)}; valid: {sorted(VALID_PERIODS)}")
 
+    output_dir = _get("OUTPUT_DIR", "output")
+    run_label = _sanitize(_get("RUN_LABEL", ""))
+    stamp = datetime.now(timezone.utc).strftime("%Y_%m_%d-%H%M%S")
+    folder = f"{category}_{stamp}" + (f"_{run_label}" if run_label else "")
+    run_dir = os.path.join(output_dir, folder)
+
     return Config(
         category=category,
         time_periods=periods,
@@ -102,6 +118,7 @@ def load_config(env_path: str | None = None) -> Config:
         max_favorite_entry_share=_get_float("MAX_FAVORITE_ENTRY_SHARE", 0.30),
         min_loss_share=_get_float("MIN_LOSS_SHARE", 0.05),
         min_roi=_get_float("MIN_ROI", 0.05),
+        roi_trim_top_n=_get_int("ROI_TRIM_TOP_N", 3),
         max_trades_per_day=_get_float("MAX_TRADES_PER_DAY", 25),
         max_size_ratio=_get_float("MAX_SIZE_RATIO", 15),
         max_late_entry_share=_get_float("MAX_LATE_ENTRY_SHARE", 0.20),
@@ -115,5 +132,7 @@ def load_config(env_path: str | None = None) -> Config:
         request_rate=_get_float("REQUEST_RATE", 10),
         leaderboard_max_offset=_get_int("LEADERBOARD_MAX_OFFSET", 3000),
         cache_dir=_get("CACHE_DIR", ".cache"),
-        output_dir=_get("OUTPUT_DIR", "output"),
+        output_dir=output_dir,
+        run_label=run_label,
+        run_dir=run_dir,
     )

@@ -125,7 +125,8 @@ def run(cfg: Config) -> str:
 
     # ---- candidates.csv ----
     candidates_df = pd.DataFrame(candidate_rows)
-    cand_path = os.path.join(cfg.output_dir, f"candidates_{cfg.category}.csv")
+    os.makedirs(cfg.run_dir, exist_ok=True)
+    cand_path = os.path.join(cfg.run_dir, f"candidates_{cfg.category}.csv")
     candidates_df.to_csv(cand_path, index=False)
     tqdm.write(f"\n  wrote {cand_path} ({len(candidates_df)} rows)")
 

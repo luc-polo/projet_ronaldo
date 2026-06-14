@@ -82,22 +82,25 @@ def compute_cheap_metrics(
     m["n_trades"] = float(len(trades))
 
     # --- account age / recency from trade activity ---
+    active_days = 1
     if not trades.empty and trades["timestamp"].notna().any():
         first_ts = float(trades["timestamp"].min())
         last_ts = float(trades["timestamp"].max())
         m["account_age_days"] = (now_ts - first_ts) / 86400.0
         m["days_since_last_trade"] = (now_ts - last_ts) / 86400.0
-        active_days = trades["timestamp"].dropna().apply(
-            lambda t: datetime.fromtimestamp(t, timezone.utc).date()).nunique()
-        m["trades_per_day"] = _safe_div(len(trades), max(1, active_days))
+        active_days = max(1, trades["timestamp"].dropna().apply(
+            lambda t: datetime.fromtimestamp(t, timezone.utc).date()).nunique())
+        m["trades_per_day"] = _safe_div(len(trades), active_days)
     else:
         m["account_age_days"] = 0.0
         m["days_since_last_trade"] = 1e9
         m["trades_per_day"] = 0.0
+    # distinct positions (markets/token_id) entered per active trading day
+    m["positions_per_day"] = _safe_div(n, active_days)
 
     if n == 0:
         # nothing more to compute; fill zeros so gates fail cleanly
-        for k in ("win_rate", "roi", "favorite_entry_share", "loss_share", "size_ratio",
+        for k in ("win_rate", "roi", "roi_trimmed", "favorite_entry_share", "loss_share", "size_ratio",
                   "late_entry_share", "median_hold_hours", "category_share",
                   "profit_factor", "monthly_consistency", "recent_vs_lifetime"):
             m[k] = 0.0
@@ -109,6 +112,15 @@ def compute_cheap_metrics(
     m["win_rate"] = _safe_div((pnl > 0).sum(), n)
     m["loss_share"] = _safe_div((pnl < 0).sum(), n)
     m["roi"] = _safe_div(pnl.sum(), bought.sum())
+    # ROI excluding the most profitable rows: drops the top-N positions by realized
+    # PnL entirely (both PnL and cost), so a trader carried by one or two jackpots
+    # no longer clears MIN_ROI. With <= roi_trim_top_n rows, the trimmed set is empty
+    # and ROI is 0.0 (gate fails cleanly).
+    top_n = cfg.roi_trim_top_n
+    drop_idx = pnl.nlargest(top_n).index if top_n > 0 else pnl.index[:0]
+    pnl_t = pnl.drop(drop_idx)
+    bought_t = bought.drop(drop_idx)
+    m["roi_trimmed"] = _safe_div(pnl_t.sum(), bought_t.sum())
     m["favorite_entry_share"] = _safe_div(
         (positions["avgPrice"].fillna(0.0) >= cfg.favorite_price).sum(), n)
 
@@ -203,7 +215,7 @@ def compute_median_market_volume(
 def compute_post_entry_drift(
     client: ApiClient, cfg: Config, trades: pd.DataFrame, rng: random.Random
 ) -> Optional[float]:
-    """Median |price(entry+30m) - entry price| over sampled BUY trades.
+    """Median |price(entry+1m) - entry price| over sampled BUY trades.
 
     Returns None if no usable sample (caller decides how to gate). Big drift => market
     moves too fast for a copy bot to get a comparable fill.
@@ -224,7 +236,7 @@ def compute_post_entry_drift(
         entry_ts = int(t["timestamp"])
         entry_price = float(t["price"])
         try:
-            hist = client.prices_history(token, entry_ts, entry_ts + 1800, fidelity=1)
+            hist = client.prices_history(token, entry_ts, entry_ts + 60, fidelity=1)
         except Exception:
             continue
         pts = hist.get("history") if isinstance(hist, dict) else None

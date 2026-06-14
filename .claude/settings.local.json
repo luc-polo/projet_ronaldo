@@ -7,7 +7,24 @@
       "Bash(command -v uv)",
       "Bash(uv --version)",
       "Bash(rm -rf .cache)",
-      "Bash(SAMPLE_SIZE=5 LEADERBOARD_MAX_OFFSET=200 TIME_PERIODS=WEEK CATEGORY=CULTURE python3 -c ' *)"
+      "Bash(SAMPLE_SIZE=5 LEADERBOARD_MAX_OFFSET=200 TIME_PERIODS=WEEK CATEGORY=CULTURE python3 -c ' *)",
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('src/metrics.py'\\).read\\(\\)\\); ast.parse\\(open\\('src/report.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('src/report.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(RUN_LABEL='test run/2!' .venv/bin/python -c ' *)",
+      "Bash(curl -s \"https://data-api.polymarket.com/v1/leaderboard?category=OVERALL&timePeriod=ALL&orderBy=PNL&limit=50&offset=0\" -o /tmp/lb.json -w \"http=%{http_code}\\\\n\")",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('/tmp/lb.json'\\)\\);print\\(type\\(d\\), len\\(d\\) if isinstance\\(d,list\\) else d\\);print\\(d[0] if isinstance\\(d,list\\) and d else ''\\)\")",
+      "Bash(cat)",
+      "Bash(python3 /tmp/lbcount.py)",
+      "Bash(grep -rln \"MIN_ROI\" --include=\"*.env*\" --include=\".env*\" .)",
+      "Bash(grep -rn \"MIN_ROI\" .env*)",
+      "Bash(python -m py_compile src/config.py src/metrics.py src/criteria.py src/report.py)",
+      "Bash(git -C /root/apps/projet_ronaldo/polymarket-scout diff HEAD -- src/)",
+      "Bash(/root/apps/projet_ronaldo/polymarket-scout/.venv/bin/python -)",
+      "Bash(python3 -c ' *)",
+      "Read(//etc/**)",
+      "Bash(timedatectl)"
     ]
   }
 }

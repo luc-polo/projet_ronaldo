@@ -88,8 +88,8 @@ def seed_wallets(client: ApiClient, cfg: Config) -> List[Seed]:
 
 
 def _persist_seeds(cfg: Config, seeds: List[Seed]) -> None:
-    os.makedirs(cfg.output_dir, exist_ok=True)
-    path = os.path.join(cfg.output_dir, f"seeds_{cfg.category}.csv")
+    os.makedirs(cfg.run_dir, exist_ok=True)
+    path = os.path.join(cfg.run_dir, f"seeds_{cfg.category}.csv")
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["wallet", "username", "pnl", "vol", "windows_seen"])

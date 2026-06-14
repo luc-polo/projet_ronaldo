@@ -19,24 +19,28 @@ import pandas as pd
 
 from .config import Config
 from .criteria import HARD_GATES
+from .metrics import CATEGORY_KEYWORDS, _match_category
 
 # metric -> human label + the gate it relates to (for the per-trader stats table)
 METRIC_LABELS = [
-    ("n_resolved", "Resolved positions"),
+    ("n_resolved", "Resolved positions (total)"),
+    ("n_trades", "Trades (total)"),
     ("account_age_days", "Account age (days)"),
     ("days_since_last_trade", "Days since last trade"),
     ("win_rate", "Win rate"),
-    ("roi", "ROI"),
+    ("roi", "ROI (all positions)"),
+    ("roi_trimmed", "ROI (excl. top-N profits)"),
     ("profit_factor", "Profit factor"),
     ("favorite_entry_share", "Favorite-entry share (avgPrice>=fav)"),
     ("loss_share", "Loss share"),
     ("trades_per_day", "Trades / active day"),
+    ("positions_per_day", "Positions / active day"),
     ("size_ratio", "Max/median position size"),
     ("late_entry_share", "Late-entry share"),
     ("median_hold_hours", "Median hold (hours)"),
     ("category_share", "Category share"),
     ("median_market_volume", "Median market volume ($)"),
-    ("post_entry_drift", "Post-entry drift ($, 30m)"),
+    ("post_entry_drift", "Post-entry drift ($, 1m)"),
     ("monthly_consistency", "Monthly consistency"),
     ("recent_vs_lifetime", "Recent vs lifetime win rate"),
 ]
@@ -69,6 +73,39 @@ def _chart_cum_pnl(positions: pd.DataFrame) -> Optional[str]:
     return _png(fig)
 
 
+def _chart_roi_sliding(positions: pd.DataFrame, window_days: int = 30) -> Optional[str]:
+    p = positions.dropna(subset=["timestamp"]).copy()
+    p["realizedPnl"] = p["realizedPnl"].fillna(0.0)
+    p["totalBought"] = p["totalBought"].fillna(0.0)
+    p = p.sort_values("timestamp")
+    if p.empty:
+        return None
+    ts = p["timestamp"].to_numpy()
+    pnl = p["realizedPnl"].to_numpy()
+    bought = p["totalBought"].to_numpy()
+    win = window_days * 86400.0
+    times: List[datetime] = []
+    rois: List[float] = []
+    start = 0
+    for i in range(len(ts)):
+        while ts[i] - ts[start] > win:
+            start += 1
+        b = bought[start:i + 1].sum()
+        if b <= 0:
+            continue
+        rois.append(float(pnl[start:i + 1].sum() / b))
+        times.append(datetime.fromtimestamp(ts[i], timezone.utc))
+    if not times:
+        return None
+    fig, ax = plt.subplots(figsize=(6, 2.6))
+    ax.plot(times, rois, color="#2166ac")
+    ax.axhline(0, color="#999", lw=0.6)
+    ax.set_title(f"ROI — {window_days}-day sliding window")
+    ax.set_ylabel("ROI")
+    fig.autofmt_xdate()
+    return _png(fig)
+
+
 def _chart_entry_hist(positions: pd.DataFrame, fav: float) -> Optional[str]:
     pr = positions["avgPrice"].dropna()
     if pr.empty:
@@ -95,6 +132,33 @@ def _chart_hold_dist(holds: List[float]) -> Optional[str]:
     return _png(fig)
 
 
+def _chart_hold_dist_linear(holds: List[float]) -> Optional[str]:
+    h = [x for x in holds if x and x > 0]
+    if not h:
+        return None
+    fig, ax = plt.subplots(figsize=(6, 2.6))
+    ax.hist(h, bins=20, color="#8073ac", edgecolor="white")
+    ax.set_title("Hold-time distribution (linear)")
+    ax.set_xlabel("hours")
+    return _png(fig)
+
+
+def _chart_size_time_log(positions: pd.DataFrame) -> Optional[str]:
+    p = positions.dropna(subset=["timestamp"]).copy()
+    p["totalBought"] = p["totalBought"].fillna(0)
+    p = p[p["totalBought"] > 0].sort_values("timestamp")
+    if p.empty:
+        return None
+    t = [datetime.fromtimestamp(x, timezone.utc) for x in p["timestamp"]]
+    fig, ax = plt.subplots(figsize=(6, 2.6))
+    ax.scatter(t, p["totalBought"], s=10, color="#d6604d", alpha=0.6)
+    ax.set_yscale("log")
+    ax.set_title("Position size over time (log)")
+    ax.set_ylabel("totalBought ($, log)")
+    fig.autofmt_xdate()
+    return _png(fig)
+
+
 def _chart_size_time(positions: pd.DataFrame) -> Optional[str]:
     p = positions.dropna(subset=["timestamp"]).sort_values("timestamp")
     if p.empty:
@@ -105,6 +169,29 @@ def _chart_size_time(positions: pd.DataFrame) -> Optional[str]:
     ax.set_title("Position size over time")
     ax.set_ylabel("totalBought ($)")
     fig.autofmt_xdate()
+    return _png(fig)
+
+
+def _chart_category_volume(positions: pd.DataFrame) -> Optional[str]:
+    if positions.empty or "totalBought" not in positions:
+        return None
+    cats = list(CATEGORY_KEYWORDS.keys())
+    totals: Dict[str, float] = {}
+    for _, r in positions.iterrows():
+        vol = float(r.get("totalBought") or 0)
+        if vol <= 0:
+            continue
+        label = next((c for c in cats if _match_category(r, c)), "OTHER")
+        totals[label] = totals.get(label, 0.0) + vol
+    if not totals:
+        return None
+    items = sorted(totals.items(), key=lambda kv: -kv[1])
+    fig, ax = plt.subplots(figsize=(6, 2.6))
+    ax.bar(range(len(items)), [v for _, v in items], color="#4393c3")
+    ax.set_xticks(range(len(items)))
+    ax.set_xticklabels([k for k, _ in items], rotation=45, ha="right", fontsize=7)
+    ax.set_title("Category distribution by $ volume")
+    ax.set_ylabel("totalBought ($)")
     return _png(fig)
 
 
@@ -130,8 +217,9 @@ def _chart_drift(drift_samples: List[float]) -> Optional[str]:
     fig, ax = plt.subplots(figsize=(6, 2.6))
     ax.scatter(range(len(d)), d, s=20, color="#762a83")
     ax.axhline(float(np.median(d)), color="#1b7837", ls="--", label="median")
-    ax.set_title("Post-entry drift sample (|Δprice| @30m)")
+    ax.set_title("Post-entry drift sample (|Δprice| @1m)")
     ax.set_ylabel("$")
+    ax.set_ylim(0, 0.15)
     ax.legend(fontsize=7)
     return _png(fig)
 
@@ -187,7 +275,7 @@ def _stats_table(metrics: Dict[str, float], gate_results: Dict[str, bool], cfg: 
     gate_by_metric = {
         "n_resolved": "MIN_RESOLVED", "account_age_days": "MIN_ACCOUNT_AGE_DAYS",
         "days_since_last_trade": "MAX_DAYS_SINCE_LAST_TRADE", "win_rate": "WIN_RATE_MIN",
-        "roi": "MIN_ROI", "favorite_entry_share": "MAX_FAVORITE_ENTRY_SHARE",
+        "roi_trimmed": "MIN_ROI", "favorite_entry_share": "MAX_FAVORITE_ENTRY_SHARE",
         "loss_share": "MIN_LOSS_SHARE", "trades_per_day": "MAX_TRADES_PER_DAY",
         "size_ratio": "MAX_SIZE_RATIO", "late_entry_share": "MAX_LATE_ENTRY_SHARE",
         "median_hold_hours": "MIN_MEDIAN_HOLD_HOURS", "category_share": "MIN_CATEGORY_SHARE",
@@ -218,9 +306,9 @@ def build_report(
     candidates_df: pd.DataFrame,
     run_date: datetime,
 ) -> str:
-    os.makedirs(cfg.output_dir, exist_ok=True)
-    date_str = run_date.strftime("%Y%m%d")
-    out_path = os.path.join(cfg.output_dir, f"report_{cfg.category}_{date_str}.html")
+    os.makedirs(cfg.run_dir, exist_ok=True)
+    date_str = run_date.strftime("%Y_%m_%d")
+    out_path = os.path.join(cfg.run_dir, f"report_{cfg.category}_{date_str}.html")
 
     parts: List[str] = [
         "<!doctype html><html><head><meta charset='utf-8'>",
@@ -255,9 +343,13 @@ def build_report(
         drift_samples = s.get("drift_samples", [])
         charts = [
             _chart_cum_pnl(positions),
+            _chart_roi_sliding(positions),
             _chart_entry_hist(positions, cfg.favorite_price),
             _chart_hold_dist(holds),
+            _chart_hold_dist_linear(holds),
+            _chart_size_time_log(positions),
             _chart_size_time(positions),
+            _chart_category_volume(positions),
             _chart_monthly_wr(positions),
             _chart_drift(drift_samples),
         ]
