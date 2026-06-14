@@ -24,7 +24,8 @@
       "Bash(/root/apps/projet_ronaldo/polymarket-scout/.venv/bin/python -)",
       "Bash(python3 -c ' *)",
       "Read(//etc/**)",
-      "Bash(timedatectl)"
+      "Bash(timedatectl)",
+      "Bash(awk '{print $6, $7}')"
     ]
   }
 }
